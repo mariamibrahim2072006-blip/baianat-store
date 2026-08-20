@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  username  String
+  email     String   @unique
+  password  String
+  address   String?
+  createdAt DateTime @default(now())
+
+  cart      Cart?
+  orders    Order[]
+  reviews   Review[]
+}
+
+model Product {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  legacyId    Int      @unique
+  name        String
+  price       Float
+  oldPrice    Float?
+  category    String
+  description String
+  image       String
+  discount    String?
+  rating      Float    @default(0)
+  reviews     Int      @default(0)
+  stock       Int      @default(10) // <-- حقل إدارة المخازن أضيف هنا بنجاح
+  createdAt   DateTime @default(now())
+
+  productReviews Review[]
+}
+
+model Cart {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String      @unique @db.ObjectId
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  updatedAt DateTime    @updatedAt
+  createdAt DateTime    @default(now())
+}
+
+model CartItem {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  cartId          String   @db.ObjectId
+  cart            Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  productLegacyId Int
+  quantity        Int      @default(1)
+  selectedSize    String?
+  createdAt       DateTime @default(now())
+}
+
+model Order {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String      @db.ObjectId
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  total     Float
+  address   String
+  status    String      @default("Pending")
+  createdAt DateTime    @default(now())
+
+  items     OrderItem[]
+}
+
+model OrderItem {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId         String   @db.ObjectId
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productLegacyId Int
+  name            String
+  price           Float
+  image           String
+  quantity        Int
+  selectedSize    String?
+}
+
+model Review {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  productId String   @db.ObjectId
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
