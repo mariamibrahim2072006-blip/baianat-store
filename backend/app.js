@@ -102,15 +102,12 @@ app.use(
 );
 
 // ============================================================
-// CORS
+// CORS (تم التحديث ليقبل أي رابط فرعي أو أساسي على Vercel تلقائياً)
 // ============================================================
 
 const allowedOrigins = [
     'http://localhost:5173',
-    'https://baianat-frontend.vercel.app',
-    'https://baianat-frontend-git-main-mariam-b9a6.vercel.app',
-    'https://baianat-frontend-59auojujn-mariam-b9a6.vercel.app',
-    'https://baianat-frontend-rd06ulo5c-mariam-b9a6.vercel.app',
+    'https://baianat-store.vercel.app',
 ];
 
 app.use(
@@ -129,7 +126,8 @@ app.use(
             if (
                 allowedOrigins.includes(
                     origin
-                )
+                ) ||
+                origin.endsWith('.vercel.app')
             ) {
                 return callback(
                     null,
@@ -306,7 +304,7 @@ app.get(
 );
 
 // ============================================================
-// AUTH MIDDLEWARE (تم التعديل لدعم الكوكي والهيدر معاً)
+// AUTH MIDDLEWARE
 // ============================================================
 
 function authenticateToken(
@@ -545,7 +543,7 @@ app.post(
 );
 
 // ============================================================
-// LOGIN (تم التعديل لإرسال token مع الـ response)
+// LOGIN
 // ============================================================
 
 app.post(
@@ -627,7 +625,7 @@ app.post(
             res.status(200).json({
                 message:
                     'تم تسجيل الدخول بنجاح!',
-                token: token, // إرسال التوكن في الـ JSON لضمان حفظه في الـ localStorage
+                token: token,
                 user: {
                     id:
                         user.id,
@@ -1109,9 +1107,9 @@ app.post(
                         mode:
                             'payment',
                         success_url:
-                            'https://baianat-frontend.vercel.app/success',
+                            'https://baianat-store.vercel.app/success',
                         cancel_url:
-                            'https://baianat-frontend.vercel.app/cart',
+                            'https://baianat-store.vercel.app/cart',
                     }
                 );
 
