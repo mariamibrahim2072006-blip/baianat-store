@@ -10,32 +10,64 @@ const dotenv = require('dotenv');
 const nodemailer = require('nodemailer');
 
 // ============================================================
-// LOAD ENVIRONMENT VARIABLES FIRST
+// LOAD ENVIRONMENT VARIABLES
 // ============================================================
 
 dotenv.config();
 
-// Stripe must be initialized AFTER dotenv.config()
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// ============================================================
+// STRIPE
+// ============================================================
+
+const stripe = require('stripe')(
+    process.env.STRIPE_SECRET_KEY
+);
 
 // ============================================================
 // APP SETUP
 // ============================================================
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+
+const PORT =
+    process.env.PORT || 5000;
+
+// ============================================================
+// IMPORTANT FOR RAILWAY / PROXY
+// ============================================================
+
+app.set('trust proxy', 1);
+
+// ============================================================
+// ENVIRONMENT
+// ============================================================
+
+const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.RAILWAY_PUBLIC_DOMAIN);
+
+console.log(
+    '🌍 Environment:',
+    isProduction
+        ? 'PRODUCTION'
+        : 'DEVELOPMENT'
+);
 
 // ============================================================
 // REQUIRED ENVIRONMENT VARIABLES
 // ============================================================
 
 if (!process.env.DATABASE_URL) {
-    console.error('❌ DATABASE_URL غير موجود في .env');
+    console.error(
+        '❌ DATABASE_URL غير موجود'
+    );
     process.exit(1);
 }
 
 if (!process.env.JWT_SECRET) {
-    console.error('❌ JWT_SECRET غير موجود في .env');
+    console.error(
+        '❌ JWT_SECRET غير موجود'
+    );
     process.exit(1);
 }
 
@@ -43,25 +75,31 @@ if (!process.env.JWT_SECRET) {
 // PRISMA
 // ============================================================
 
-const prisma = new PrismaClient();
+const prisma =
+    new PrismaClient();
 
 // ============================================================
-// NODEMAILER TRANSPORTER
+// NODEMAILER
 // ============================================================
 
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-});
+const transporter =
+    nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user:
+                process.env.EMAIL_USER,
+            pass:
+                process.env.EMAIL_PASS,
+        },
+    });
 
 // ============================================================
 // MIDDLEWARE
 // ============================================================
 
-app.use(helmet());
+app.use(
+    helmet()
+);
 
 // ============================================================
 // CORS
@@ -69,157 +107,253 @@ app.use(helmet());
 
 const allowedOrigins = [
     'http://localhost:5173',
-
-    // Vercel Production
     'https://baianat-frontend.vercel.app',
-
-    // Vercel Git Main
     'https://baianat-frontend-git-main-mariam-b9a6.vercel.app',
-
-    // Vercel Preview
     'https://baianat-frontend-59auojujn-mariam-b9a6.vercel.app',
-
-    // Current deployment if needed
     'https://baianat-frontend-rd06ulo5c-mariam-b9a6.vercel.app',
 ];
 
 app.use(
     cors({
-        origin: function (origin, callback) {
-            // Allow requests without Origin
-            // Example: Postman / server-to-server requests
+        origin: function (
+            origin,
+            callback
+        ) {
             if (!origin) {
-                return callback(null, true);
+                return callback(
+                    null,
+                    true
+                );
             }
 
-            if (allowedOrigins.includes(origin)) {
-                return callback(null, true);
+            if (
+                allowedOrigins.includes(
+                    origin
+                )
+            ) {
+                return callback(
+                    null,
+                    true
+                );
             }
 
-            console.error('❌ CORS blocked origin:', origin);
+            console.error(
+                '❌ CORS blocked origin:',
+                origin
+            );
 
             return callback(
-                new Error(`Not allowed by CORS: ${origin}`)
+                new Error(
+                    `Not allowed by CORS: ${origin}`
+                )
             );
         },
-
         credentials: true,
     })
 );
 
-app.use(express.json({ limit: '100kb' }));
-app.use(cookieParser());
+// ============================================================
+// BODY PARSERS
+// ============================================================
+
+app.use(
+    express.json({
+        limit: '100kb',
+    })
+);
+
+app.use(
+    cookieParser()
+);
 
 // ============================================================
 // RATE LIMIT
 // ============================================================
 
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
-
-    message: {
-        message:
-            'محاولات كثيرة. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.',
-    },
-});
+const authLimiter =
+    rateLimit({
+        windowMs:
+            15 * 60 * 1000,
+        max: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+            message:
+                'محاولات كثيرة. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.',
+        },
+    });
 
 // ============================================================
-// HELPERS
+// COOKIE OPTIONS
 // ============================================================
 
-function formatProduct(product) {
+function getAuthCookieOptions() {
     return {
-        id: String(product.legacyId),
-
-        name: product.name,
-
-        price: Number(product.price),
-
-        oldPrice:
-            product.oldPrice !== null &&
-                product.oldPrice !== undefined
-                ? Number(product.oldPrice)
-                : undefined,
-
-        category: product.category,
-
-        description: product.description,
-
-        image: product.image,
-
-        discount:
-            product.discount !== null &&
-                product.discount !== undefined
-                ? String(product.discount)
-                : undefined,
-
-        rating: Number(product.rating) || 0,
-
-        reviews: Number(product.reviews) || 0,
-
-        stock: Number(product.stock) || 0,
+        httpOnly: true,
+        secure: isProduction,
+        sameSite:
+            isProduction
+                ? 'none'
+                : 'lax',
+        maxAge:
+            7 *
+            24 *
+            60 *
+            60 *
+            1000,
+        path: '/',
     };
 }
 
 // ============================================================
-// HOME
+// FORMAT PRODUCT
 // ============================================================
 
-app.get('/', (req, res) => {
-    res.json({
-        message: 'Backend API is running',
-        status: 'ok',
-    });
-});
+function formatProduct(
+    product
+) {
+    return {
+        id: String(
+            product.legacyId
+        ),
+        name:
+            product.name,
+        price:
+            Number(
+                product.price
+            ),
+        oldPrice:
+            product.oldPrice !==
+                null &&
+                product.oldPrice !==
+                undefined
+                ? Number(
+                    product.oldPrice
+                )
+                : undefined,
+        category:
+            product.category,
+        description:
+            product.description,
+        image:
+            product.image,
+        discount:
+            product.discount !==
+                null &&
+                product.discount !==
+                undefined
+                ? String(
+                    product.discount
+                )
+                : undefined,
+        rating:
+            Number(
+                product.rating
+            ) || 0,
+        reviews:
+            Number(
+                product.reviews
+            ) || 0,
+        stock:
+            Number(
+                product.stock
+            ) || 0,
+    };
+}
 
 // ============================================================
-// HEALTH CHECK
+// ROOT
 // ============================================================
 
-app.get('/api/health', async (req, res) => {
-    try {
-        await prisma.$connect();
-
+app.get(
+    '/',
+    (req, res) => {
         res.status(200).json({
+            message:
+                'Backend API is running',
             status: 'ok',
-            database: 'connected',
-        });
-    } catch (error) {
-        console.error('Health check error:', error);
-
-        res.status(503).json({
-            status: 'error',
-            database: 'disconnected',
         });
     }
-});
+);
 
 // ============================================================
-// AUTH MIDDLEWARE
+// HEALTH
 // ============================================================
 
-function authenticateToken(req, res, next) {
-    const token = req.cookies.token;
+app.get(
+    '/api/health',
+    async (req, res) => {
+        try {
+            await prisma.$connect();
+            res.status(200).json({
+                status: 'ok',
+                database:
+                    'connected',
+            });
+        } catch (error) {
+            console.error(
+                'Health check error:',
+                error
+            );
+            res.status(503).json({
+                status:
+                    'error',
+                database:
+                    'disconnected',
+            });
+        }
+    }
+);
+
+// ============================================================
+// AUTH MIDDLEWARE (تم التعديل لدعم الكوكي والهيدر معاً)
+// ============================================================
+
+function authenticateToken(
+    req,
+    res,
+    next
+) {
+    let token = req.cookies?.token;
+
+    if (!token && req.headers.authorization) {
+        const authHeader = req.headers.authorization;
+        if (authHeader.startsWith('Bearer ')) {
+            token = authHeader.split(' ')[1];
+        }
+    }
+
+    console.log(
+        '🍪 Token received:',
+        token
+            ? 'YES'
+            : 'NO'
+    );
 
     if (!token) {
         return res.status(401).json({
-            message: 'غير مصرح. يرجى تسجيل الدخول.',
+            message:
+                'غير مصرح. يرجى تسجيل الدخول.',
         });
     }
 
     try {
-        const decoded = jwt.verify(
-            token,
-            process.env.JWT_SECRET
-        );
+        const decoded =
+            jwt.verify(
+                token,
+                process.env.JWT_SECRET
+            );
 
-        req.userId = decoded.userId;
+        req.userId =
+            decoded.userId;
 
         next();
     } catch (error) {
+        console.error(
+            '❌ JWT verification error:',
+            error.message
+        );
+
         return res.status(401).json({
             message:
                 'جلسة تسجيل الدخول غير صالحة أو منتهية.',
@@ -228,72 +362,97 @@ function authenticateToken(req, res, next) {
 }
 
 // ============================================================
-// PRODUCTS API
+// PRODUCTS
 // ============================================================
 
-app.get('/api/products', async (req, res) => {
-    try {
-        const products = await prisma.product.findMany({
-            orderBy: {
-                legacyId: 'asc',
-            },
-        });
+app.get(
+    '/api/products',
+    async (req, res) => {
+        try {
+            const products =
+                await prisma.product.findMany({
+                    orderBy: {
+                        legacyId:
+                            'asc',
+                    },
+                });
 
-        const formattedProducts =
-            products.map(formatProduct);
+            res.status(200).json(
+                products.map(
+                    formatProduct
+                )
+            );
+        } catch (error) {
+            console.error(
+                '❌ Get products error:',
+                error
+            );
 
-        res.status(200).json(formattedProducts);
-    } catch (error) {
-        console.error('❌ Get products error:', error);
-
-        res.status(500).json({
-            message: 'حدث خطأ أثناء تحميل المنتجات.',
-        });
+            res.status(500).json({
+                message:
+                    'حدث خطأ أثناء تحميل المنتجات.',
+            });
+        }
     }
-});
+);
 
 // ============================================================
 // SINGLE PRODUCT
 // ============================================================
 
-app.get('/api/products/:id', async (req, res) => {
-    try {
-        const productId = Number(req.params.id);
+app.get(
+    '/api/products/:id',
+    async (req, res) => {
+        try {
+            const productId =
+                Number(
+                    req.params.id
+                );
 
-        if (!Number.isInteger(productId)) {
-            return res.status(400).json({
-                message: 'معرف المنتج غير صالح.',
+            if (
+                !Number.isInteger(
+                    productId
+                )
+            ) {
+                return res.status(400).json({
+                    message:
+                        'معرف المنتج غير صالح.',
+                });
+            }
+
+            const product =
+                await prisma.product.findUnique({
+                    where: {
+                        legacyId:
+                            productId,
+                    },
+                });
+
+            if (!product) {
+                return res.status(404).json({
+                    message:
+                        'المنتج غير موجود.',
+                });
+            }
+
+            res.status(200).json(
+                formatProduct(
+                    product
+                )
+            );
+        } catch (error) {
+            console.error(
+                '❌ Get product error:',
+                error
+            );
+
+            res.status(500).json({
+                message:
+                    'حدث خطأ أثناء تحميل المنتج.',
             });
         }
-
-        const product =
-            await prisma.product.findUnique({
-                where: {
-                    legacyId: productId,
-                },
-            });
-
-        if (!product) {
-            return res.status(404).json({
-                message: 'المنتج غير موجود.',
-            });
-        }
-
-        res.status(200).json(
-            formatProduct(product)
-        );
-    } catch (error) {
-        console.error(
-            '❌ Get product error:',
-            error
-        );
-
-        res.status(500).json({
-            message:
-                'حدث خطأ أثناء تحميل المنتج.',
-        });
     }
-});
+);
 
 // ============================================================
 // SIGN UP
@@ -311,13 +470,17 @@ app.post(
             } = req.body;
 
             const cleanUsername =
-                typeof username === 'string'
+                typeof username ===
+                    'string'
                     ? username.trim()
                     : '';
 
             const cleanEmail =
-                typeof email === 'string'
-                    ? email.trim().toLowerCase()
+                typeof email ===
+                    'string'
+                    ? email
+                        .trim()
+                        .toLowerCase()
                     : '';
 
             if (
@@ -334,7 +497,8 @@ app.post(
             const existingUser =
                 await prisma.user.findUnique({
                     where: {
-                        email: cleanEmail,
+                        email:
+                            cleanEmail,
                     },
                 });
 
@@ -346,13 +510,19 @@ app.post(
             }
 
             const hashedPassword =
-                await bcrypt.hash(password, 12);
+                await bcrypt.hash(
+                    password,
+                    12
+                );
 
             await prisma.user.create({
                 data: {
-                    username: cleanUsername,
-                    email: cleanEmail,
-                    password: hashedPassword,
+                    username:
+                        cleanUsername,
+                    email:
+                        cleanEmail,
+                    password:
+                        hashedPassword,
                 },
             });
 
@@ -375,7 +545,7 @@ app.post(
 );
 
 // ============================================================
-// LOGIN
+// LOGIN (تم التعديل لإرسال token مع الـ response)
 // ============================================================
 
 app.post(
@@ -389,14 +559,28 @@ app.post(
             } = req.body;
 
             const cleanEmail =
-                typeof email === 'string'
-                    ? email.trim().toLowerCase()
+                typeof email ===
+                    'string'
+                    ? email
+                        .trim()
+                        .toLowerCase()
                     : '';
+
+            if (
+                !cleanEmail ||
+                !password
+            ) {
+                return res.status(400).json({
+                    message:
+                        'البريد الإلكتروني وكلمة المرور مطلوبان.',
+                });
+            }
 
             const user =
                 await prisma.user.findUnique({
                     where: {
-                        email: cleanEmail,
+                        email:
+                            cleanEmail,
                     },
                 });
 
@@ -413,26 +597,44 @@ app.post(
                 });
             }
 
-            const token = jwt.sign(
-                {
-                    userId: user.id,
-                },
-                process.env.JWT_SECRET,
-                {
-                    expiresIn: '7d',
-                }
+            const token =
+                jwt.sign(
+                    {
+                        userId:
+                            user.id,
+                    },
+                    process.env.JWT_SECRET,
+                    {
+                        expiresIn:
+                            '7d',
+                    }
+                );
+
+            res.cookie(
+                'token',
+                token,
+                getAuthCookieOptions()
             );
 
-
+            console.log(
+                '✅ Login successful for:',
+                user.email
+            );
+            console.log(
+                '🍪 Auth cookie set'
+            );
 
             res.status(200).json({
                 message:
                     'تم تسجيل الدخول بنجاح!',
-
+                token: token, // إرسال التوكن في الـ JSON لضمان حفظه في الـ localStorage
                 user: {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
+                    id:
+                        user.id,
+                    username:
+                        user.username,
+                    email:
+                        user.email,
                 },
             });
         } catch (error) {
@@ -461,15 +663,20 @@ app.get(
             const user =
                 await prisma.user.findUnique({
                     where: {
-                        id: req.userId,
+                        id:
+                            req.userId,
                     },
-
                     select: {
-                        id: true,
-                        username: true,
-                        email: true,
-                        address: true,
-                        createdAt: true,
+                        id:
+                            true,
+                        username:
+                            true,
+                        email:
+                            true,
+                        address:
+                            true,
+                        createdAt:
+                            true,
                     },
                 });
 
@@ -519,7 +726,8 @@ app.put(
             const existingUser =
                 await prisma.user.findUnique({
                     where: {
-                        id: req.userId,
+                        id:
+                            req.userId,
                     },
                 });
 
@@ -531,8 +739,11 @@ app.put(
             }
 
             const cleanEmail =
-                typeof email === 'string'
-                    ? email.trim().toLowerCase()
+                typeof email ===
+                    'string'
+                    ? email
+                        .trim()
+                        .toLowerCase()
                     : '';
 
             const updateData = {
@@ -540,14 +751,15 @@ app.put(
                     `${firstName || ''} ${lastName || ''
                         }`.trim() ||
                     existingUser.username,
-
                 email:
                     cleanEmail ||
                     existingUser.email,
-
                 address:
-                    address !== undefined
-                        ? String(address).trim()
+                    address !==
+                        undefined
+                        ? String(
+                            address
+                        ).trim()
                         : existingUser.address,
             };
 
@@ -585,24 +797,30 @@ app.put(
             const updatedUser =
                 await prisma.user.update({
                     where: {
-                        id: req.userId,
+                        id:
+                            req.userId,
                     },
-
-                    data: updateData,
-
+                    data:
+                        updateData,
                     select: {
-                        id: true,
-                        username: true,
-                        email: true,
-                        address: true,
-                        createdAt: true,
+                        id:
+                            true,
+                        username:
+                            true,
+                        email:
+                            true,
+                        address:
+                            true,
+                        createdAt:
+                            true,
                     },
                 });
 
             res.status(200).json({
                 message:
                     'تم حفظ التغييرات بنجاح.',
-                user: updatedUser,
+                user:
+                    updatedUser,
             });
         } catch (error) {
             console.error(
@@ -622,24 +840,24 @@ app.put(
 // LOGOUT
 // ============================================================
 
-app.post('/api/logout', (req, res) => {
-    const isProduction =
-        process.env.NODE_ENV === 'production';
+app.post(
+    '/api/logout',
+    (req, res) => {
+        res.clearCookie(
+            'token',
+            {
+                ...getAuthCookieOptions(),
+                maxAge:
+                    undefined,
+            }
+        );
 
-    res.clearCookie('token', {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction
-            ? 'none'
-            : 'lax',
-        path: '/',
-    });
-
-    res.json({
-        message:
-            'تم تسجيل الخروج بنجاح.',
-    });
-});
+        res.status(200).json({
+            message:
+                'تم تسجيل الخروج بنجاح.',
+        });
+    }
+);
 
 // ============================================================
 // CART - GET
@@ -653,11 +871,12 @@ app.get(
             const cart =
                 await prisma.cart.findUnique({
                     where: {
-                        userId: req.userId,
+                        userId:
+                            req.userId,
                     },
-
                     include: {
-                        items: true,
+                        items:
+                            true,
                     },
                 });
 
@@ -672,47 +891,49 @@ app.get(
 
             const formattedItems =
                 cart.items
-                    .map((item) => {
-                        const product =
-                            products.find(
-                                (p) =>
-                                    p.legacyId ===
-                                    item.productLegacyId
-                            );
+                    .map(
+                        (item) => {
+                            const product =
+                                products.find(
+                                    (p) =>
+                                        p.legacyId ===
+                                        item.productLegacyId
+                                );
 
-                        if (!product)
-                            return null;
+                            if (
+                                !product
+                            ) {
+                                return null;
+                            }
 
-                        return {
-                            id: String(
-                                product.legacyId
-                            ),
-
-                            name: product.name,
-
-                            price: Number(
-                                product.price
-                            ),
-
-                            oldPrice:
-                                product.oldPrice ??
-                                undefined,
-
-                            image:
-                                product.image,
-
-                            quantity:
-                                item.quantity,
-
-                            selectedSize:
-                                item.selectedSize ??
-                                undefined,
-                        };
-                    })
+                            return {
+                                id: String(
+                                    product.legacyId
+                                ),
+                                name:
+                                    product.name,
+                                price:
+                                    Number(
+                                        product.price
+                                    ),
+                                oldPrice:
+                                    product.oldPrice ??
+                                    undefined,
+                                image:
+                                    product.image,
+                                quantity:
+                                    item.quantity,
+                                selectedSize:
+                                    item.selectedSize ??
+                                    undefined,
+                            };
+                        }
+                    )
                     .filter(Boolean);
 
             res.status(200).json({
-                items: formattedItems,
+                items:
+                    formattedItems,
             });
         } catch (error) {
             console.error(
@@ -737,59 +958,70 @@ app.put(
     authenticateToken,
     async (req, res) => {
         try {
-            const { items } = req.body;
+            const {
+                items,
+            } = req.body;
 
             const cart =
                 await prisma.cart.upsert({
                     where: {
-                        userId: req.userId,
+                        userId:
+                            req.userId,
                     },
-
                     update: {},
-
                     create: {
-                        userId: req.userId,
+                        userId:
+                            req.userId,
                     },
                 });
 
             await prisma.cartItem.deleteMany({
                 where: {
-                    cartId: cart.id,
+                    cartId:
+                        cart.id,
                 },
             });
 
             if (
-                Array.isArray(items) &&
+                Array.isArray(
+                    items
+                ) &&
                 items.length > 0
             ) {
-                const cartItems = items
-                    .map((item) => ({
-                        cartId: cart.id,
-
-                        productLegacyId:
-                            Number(item.id),
-
-                        quantity:
-                            Number(
-                                item.quantity
-                            ) || 1,
-
-                        selectedSize:
-                            item.selectedSize ||
-                            null,
-                    }))
-                    .filter((item) =>
-                        Number.isInteger(
-                            item.productLegacyId
+                const cartItems =
+                    items
+                        .map(
+                            (item) => ({
+                                cartId:
+                                    cart.id,
+                                productLegacyId:
+                                    Number(
+                                        item.id
+                                    ),
+                                quantity:
+                                    Number(
+                                        item.quantity
+                                    ) || 1,
+                                selectedSize:
+                                    item.selectedSize ||
+                                    null,
+                            })
                         )
-                    );
+                        .filter(
+                            (item) =>
+                                Number.isInteger(
+                                    item.productLegacyId
+                                )
+                        );
 
                 if (
-                    cartItems.length > 0
+                    cartItems.length >
+                    0
                 ) {
                     await prisma.cartItem.createMany(
                         {
-                            data: cartItems,
+                            data:
+                                cartItems,
                         }
                     );
                 }
@@ -814,7 +1046,7 @@ app.put(
 );
 
 // ============================================================
-// STRIPE PAYMENT
+// STRIPE CHECKOUT
 // ============================================================
 
 app.post(
@@ -822,11 +1054,16 @@ app.post(
     authenticateToken,
     async (req, res) => {
         try {
-            const { items } = req.body;
+            const {
+                items,
+            } = req.body;
 
             if (
-                !Array.isArray(items) ||
-                items.length === 0
+                !Array.isArray(
+                    items
+                ) ||
+                items.length ===
+                0
             ) {
                 return res.status(400).json({
                     message:
@@ -837,23 +1074,24 @@ app.post(
             const session =
                 await stripe.checkout.sessions.create(
                     {
-                        payment_method_types: [
-                            'card',
-                        ],
-
+                        payment_method_types:
+                            [
+                                'card',
+                            ],
                         line_items:
                             items.map(
-                                (item) => ({
-                                    price_data: {
+                                (
+                                    item
+                                ) => ({
+                                    price_data:
+                                    {
                                         currency:
                                             'usd',
-
                                         product_data:
                                         {
                                             name:
                                                 item.name,
                                         },
-
                                         unit_amount:
                                             Math.round(
                                                 Number(
@@ -862,27 +1100,26 @@ app.post(
                                                 100
                                             ),
                                     },
-
                                     quantity:
                                         Number(
                                             item.quantity
                                         ) || 1,
                                 })
                             ),
-
-                        mode: 'payment',
-
+                        mode:
+                            'payment',
                         success_url:
                             'https://baianat-frontend.vercel.app/success',
-
                         cancel_url:
                             'https://baianat-frontend.vercel.app/cart',
                     }
                 );
 
-            res.json({
-                id: session.id,
-                url: session.url,
+            res.status(200).json({
+                id:
+                    session.id,
+                url:
+                    session.url,
             });
         } catch (error) {
             console.error(
@@ -892,14 +1129,14 @@ app.post(
 
             res.status(500).json({
                 message:
-                    'حدث خطأ في عملية الدفع',
+                    'حدث خطأ في عملية الدفع.',
             });
         }
     }
 );
 
 // ============================================================
-// ORDERS
+// CREATE ORDER
 // ============================================================
 
 app.post(
@@ -915,8 +1152,11 @@ app.post(
 
             if (
                 !address ||
-                !Array.isArray(items) ||
-                items.length === 0
+                !Array.isArray(
+                    items
+                ) ||
+                items.length ===
+                0
             ) {
                 return res.status(400).json({
                     message:
@@ -930,12 +1170,13 @@ app.post(
                         let total = 0;
 
                         for (
-                            let item of items
+                            const item of items
                         ) {
                             const product =
                                 await tx.product.findUnique(
                                     {
-                                        where: {
+                                        where:
+                                        {
                                             legacyId:
                                                 Number(
                                                     item.id
@@ -950,9 +1191,14 @@ app.post(
                                 );
                             }
 
+                            const quantity =
+                                Number(
+                                    item.quantity
+                                ) || 1;
+
                             if (
                                 product.stock <
-                                item.quantity
+                                quantity
                             ) {
                                 throw new Error(
                                     `عذراً، الكمية المطلوبة من المنتج (${product.name}) غير متوفرة في المخزن (المتبقي: ${product.stock}).`
@@ -961,15 +1207,16 @@ app.post(
 
                             await tx.product.update(
                                 {
-                                    where: {
+                                    where:
+                                    {
                                         id:
                                             product.id,
                                     },
-
-                                    data: {
+                                    data:
+                                    {
                                         stock:
                                             product.stock -
-                                            item.quantity,
+                                            quantity,
                                     },
                                 }
                             );
@@ -978,103 +1225,84 @@ app.post(
                                 Number(
                                     product.price
                                 ) *
-                                Number(
-                                    item.quantity
-                                );
+                                quantity;
                         }
 
-                        const order =
-                            await tx.order.create(
+                        return await tx.order.create(
+                            {
+                                data:
                                 {
-                                    data: {
-                                        userId:
-                                            req.userId,
-
-                                        total,
-
-                                        address,
-
-                                        status:
-                                            'Pending',
-
-                                        items: {
-                                            create:
-                                                items.map(
-                                                    (
-                                                        item
-                                                    ) => ({
-                                                        productLegacyId:
-                                                            Number(
-                                                                item.id
-                                                            ),
-
-                                                        name:
-                                                            item.name,
-
-                                                        price:
-                                                            Number(
-                                                                item.price
-                                                            ) ||
-                                                            0,
-
-                                                        image:
-                                                            item.image ||
-                                                            '',
-
-                                                        quantity:
-                                                            Number(
-                                                                item.quantity
-                                                            ) ||
-                                                            1,
-
-                                                        selectedSize:
-                                                            item.selectedSize ||
-                                                            null,
-                                                    })
-                                                ),
-                                        },
+                                    userId:
+                                        req.userId,
+                                    total,
+                                    address,
+                                    status:
+                                        'Pending',
+                                    items:
+                                    {
+                                        create:
+                                            items.map(
+                                                (
+                                                    item
+                                                ) => ({
+                                                    productLegacyId:
+                                                        Number(
+                                                            item.id
+                                                        ),
+                                                    name:
+                                                        item.name,
+                                                    price:
+                                                        Number(
+                                                            item.price
+                                                        ) || 0,
+                                                    image:
+                                                        item.image ||
+                                                        '',
+                                                    quantity:
+                                                        Number(
+                                                            item.quantity
+                                                        ) || 1,
+                                                    selectedSize:
+                                                        item.selectedSize ||
+                                                        null,
+                                                })
+                                            ),
                                     },
-
-                                    include: {
-                                        items: true,
-                                    },
-                                }
-                            );
-
-                        return order;
+                                },
+                                include:
+                                {
+                                    items:
+                                        true,
+                                },
+                            }
+                        );
                     }
                 );
 
-            // Clear cart
             const cart =
                 await prisma.cart.findUnique({
                     where: {
-                        userId: req.userId,
+                        userId:
+                            req.userId,
                     },
                 });
 
             if (cart) {
                 await prisma.cartItem.deleteMany({
                     where: {
-                        cartId: cart.id,
+                        cartId:
+                            cart.id,
                     },
                 });
             }
 
-            // Send email
             const user =
                 await prisma.user.findUnique({
                     where: {
-                        id: req.userId,
+                        id:
+                            req.userId,
                     },
                 });
-
-            console.log(
-                '🔍 [DEBUG] User fetched for email:',
-                user
-                    ? user.email
-                    : 'No user found'
-            );
 
             if (
                 user &&
@@ -1089,68 +1317,74 @@ app.post(
                         ? 'الدفع عند الاستلام (Cash on Delivery)'
                         : 'الدفع الإلكتروني (Online Payment)';
 
-                const mailOptions = {
+                const mailOptions =
+                {
                     from:
                         '"BAIANAT Store" <no-reply@baianat.com>',
-
-                    to: user.email,
-
+                    to:
+                        user.email,
                     subject:
                         '🛍️ تأكيد طلبك من متجر بـيانات',
-
                     html: `
-                        <div style="font-family: Arial, sans-serif; direction: rtl; padding: 25px; background-color: #f8fafc; border-radius: 12px; color: #111;">
-                            <h2 style="color: #DB4444; margin-top: 0;">
-                                شكراً لك يا ${user.username ||
+                            <div style="font-family: Arial, sans-serif; direction: rtl; padding: 25px; background-color: #f8fafc; border-radius: 12px; color: #111;">
+                                <h2 style="color: #DB4444;">
+                                    شكراً لك يا ${user.username ||
                         'عميلنا العزيز'
                         }! 🎉
-                            </h2>
+                                </h2>
 
-                            <p style="font-size: 16px;">
-                                تم استلام طلبك بنجاح، وتحديث المخزون، وهو الآن قيد التجهيز للشحن.
-                            </p>
-
-                            <div style="background: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
-                                <h3 style="margin-top: 0; color: #0f172a; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px;">
-                                    تفاصيل الفاتورة:
-                                </h3>
-
-                                <p>
-                                    <strong>طريقة الدفع:</strong>
-                                    <span style="color: #DB4444;">
-                                        ${paymentText}
-                                    </span>
+                                <p style="font-size: 16px;">
+                                    تم استلام طلبك بنجاح، وتحديث المخزون، وهو الآن قيد التجهيز للشحن.
                                 </p>
 
-                                <p>
-                                    <strong>إجمالي المبلغ:</strong>
-                                    $${result.total.toFixed(
+                                <div style="background: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
+                                    <h3>
+                                        تفاصيل الفاتورة:
+                                    </h3>
+
+                                    <p>
+                                        <strong>
+                                            طريقة الدفع:
+                                        </strong>
+
+                                        ${paymentText}
+                                    </p>
+
+                                    <p>
+                                        <strong>
+                                            إجمالي المبلغ:
+                                        </strong>
+
+                                        $${result.total.toFixed(
                             2
                         )}
-                                </p>
+                                    </p>
 
-                                <p>
-                                    <strong>عنوان الشحن:</strong>
-                                    ${address}
-                                </p>
-                            </div>
+                                    <p>
+                                        <strong>
+                                            عنوان الشحن:
+                                        </strong>
 
-                            ${isCod
+                                        ${address}
+                                    </p>
+                                </div>
+
+                                ${isCod
                             ? `
-                                <p style="color: #475569; font-size: 14px;">
-                                    📦 سيقوم فريق التوصيل بالاتصال بك هاتفياً لتأكيد موعد وصول الشحنة.
-                                </p>
-                            `
+                                        <p>
+                                            📦 سيقوم فريق التوصيل بالاتصال بك هاتفياً لتأكيد موعد وصول الشحنة.
+                                        </p>
+                                    `
                             : ''
                         }
 
-                            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 25px 0;" />
+                                <hr />
 
-                            <p style="font-size: 12px; color: #94a3b8; text-align: center;">
-                                متجر بـيانات - جميع الحقوق محفوظة © 2026
-                            </p>
-                        </div>
-                    `,
+                                <p style="font-size: 12px; color: #94a3b8; text-align: center;">
+                                    متجر بـيانات - جميع الحقوق محفوظة © 2026
+                                </p>
+                            </div>
+                        `,
                 };
 
                 transporter.sendMail(
@@ -1158,12 +1392,12 @@ app.post(
                     (error, info) => {
                         if (error) {
                             console.error(
-                                '❌ [EMAIL ERROR DETAILS]:',
+                                '❌ Email error:',
                                 error
                             );
                         } else {
                             console.log(
-                                '✅ [EMAIL SUCCESS]:',
+                                '✅ Email sent:',
                                 info.response
                             );
                         }
@@ -1174,7 +1408,8 @@ app.post(
             res.status(201).json({
                 message:
                     'تم إنشاء الطلب وخصم الكمية من المخزن بنجاح.',
-                order: result,
+                order:
+                    result,
             });
         } catch (error) {
             console.error(
@@ -1203,15 +1438,16 @@ app.get(
             const orders =
                 await prisma.order.findMany({
                     where: {
-                        userId: req.userId,
+                        userId:
+                            req.userId,
                     },
-
                     include: {
-                        items: true,
+                        items:
+                            true,
                     },
-
                     orderBy: {
-                        createdAt: 'desc',
+                        createdAt:
+                            'desc',
                     },
                 });
 
@@ -1247,7 +1483,10 @@ app.post(
                 comment,
             } = req.body;
 
-            if (!productId || !rating) {
+            if (
+                !productId ||
+                !rating
+            ) {
                 return res.status(400).json({
                     message:
                         'معرف المنتج والتقييم مطلوبان.',
@@ -1276,19 +1515,24 @@ app.post(
             const userOrders =
                 await prisma.order.findMany({
                     where: {
-                        userId: req.userId,
+                        userId:
+                            req.userId,
                     },
-
                     include: {
-                        items: true,
+                        items:
+                            true,
                     },
                 });
 
             const hasPurchased =
                 userOrders.some(
-                    (order) =>
+                    (
+                        order
+                    ) =>
                         order.items.some(
-                            (item) =>
+                            (
+                                item
+                            ) =>
                                 Number(
                                     item.productLegacyId
                                 ) ===
@@ -1310,15 +1554,13 @@ app.post(
                     data: {
                         productId:
                             product.id,
-
                         rating:
                             Number(
                                 rating
                             ),
-
                         comment:
-                            comment || '',
-
+                            comment ||
+                            '',
                         userId:
                             req.userId,
                     },
@@ -1327,7 +1569,6 @@ app.post(
             res.status(201).json({
                 message:
                     'تم إضافة التعليق والتقييم بنجاح',
-
                 review:
                     newReview,
             });
@@ -1340,7 +1581,6 @@ app.post(
             res.status(500).json({
                 message:
                     'فشل في إضافة التقييم',
-
                 error:
                     error.message,
             });
@@ -1356,17 +1596,13 @@ app.get(
     '/api/products/:productId/reviews',
     async (req, res) => {
         try {
-            const {
-                productId,
-            } = req.params;
-
             const product =
                 await prisma.product.findUnique(
                     {
                         where: {
                             legacyId:
                                 Number(
-                                    productId
+                                    req.params.productId
                                 ),
                         },
                     }
@@ -1385,7 +1621,6 @@ app.get(
                         productId:
                             product.id,
                     },
-
                     include: {
                         user: {
                             select: {
@@ -1394,7 +1629,6 @@ app.get(
                             },
                         },
                     },
-
                     orderBy: {
                         createdAt:
                             'desc',
@@ -1406,14 +1640,13 @@ app.get(
             );
         } catch (error) {
             console.error(
-                '❌ Get reviews error details:',
+                '❌ Get reviews error:',
                 error
             );
 
             res.status(500).json({
                 message:
                     'فشل في جلب التقييمات',
-
                 error:
                     error.message,
             });
@@ -1422,7 +1655,7 @@ app.get(
 );
 
 // ============================================================
-// ADMIN AUTHENTICATION
+// ADMIN AUTH
 // ============================================================
 
 async function authenticateAdmin(
@@ -1434,7 +1667,8 @@ async function authenticateAdmin(
         const user =
             await prisma.user.findUnique({
                 where: {
-                    id: req.userId,
+                    id:
+                        req.userId,
                 },
             });
 
@@ -1449,7 +1683,8 @@ async function authenticateAdmin(
             });
         }
 
-        req.adminUser = user;
+        req.adminUser =
+            user;
 
         next();
     } catch (error) {
@@ -1466,7 +1701,7 @@ async function authenticateAdmin(
 }
 
 // ============================================================
-// ADMIN - ADD PRODUCT
+// ADMIN ADD PRODUCT
 // ============================================================
 
 app.post(
@@ -1490,8 +1725,10 @@ app.post(
 
             if (
                 !name ||
-                price === undefined ||
-                price === null
+                price ===
+                undefined ||
+                price ===
+                null
             ) {
                 return res.status(400).json({
                     message:
@@ -1515,68 +1752,57 @@ app.post(
                     1
                     : 1;
 
-            const parsedPrice =
-                Number(price);
-
             const newProduct =
                 await prisma.product.create({
                     data: {
                         legacyId:
                             newLegacyId,
-
                         name:
                             String(
                                 name
                             ).trim(),
-
                         price:
-                            parsedPrice,
-
+                            Number(
+                                price
+                            ),
                         oldPrice:
                             oldPrice
                                 ? Number(
                                     oldPrice
                                 )
                                 : null,
-
                         category:
                             category
                                 ? String(
                                     category
                                 )
                                 : 'General',
-
                         description:
                             description
                                 ? String(
                                     description
                                 )
                                 : '',
-
                         image:
                             image
                                 ? String(
                                     image
                                 )
                                 : '',
-
                         discount:
                             discount
                                 ? String(
                                     discount
                                 )
                                 : null,
-
                         rating:
                             Number(
                                 rating
                             ) || 0,
-
                         reviews:
                             Number(
                                 reviews
                             ) || 0,
-
                         stock:
                             stock !==
                                 undefined
@@ -1590,7 +1816,6 @@ app.post(
             res.status(201).json({
                 message:
                     'تمت إضافة المنتج بنجاح.',
-
                 product:
                     formatProduct(
                         newProduct
@@ -1611,7 +1836,7 @@ app.post(
 );
 
 // ============================================================
-// ADMIN - DELETE PRODUCT
+// ADMIN DELETE PRODUCT
 // ============================================================
 
 app.delete(
@@ -1650,7 +1875,7 @@ app.delete(
 );
 
 // ============================================================
-// ADMIN - UPDATE PRODUCT
+// ADMIN UPDATE PRODUCT
 // ============================================================
 
 app.put(
@@ -1663,19 +1888,6 @@ app.put(
                 Number(
                     req.params.id
                 );
-
-            const {
-                name,
-                price,
-                oldPrice,
-                category,
-                description,
-                image,
-                discount,
-                rating,
-                reviews,
-                stock,
-            } = req.body;
 
             const existingProduct =
                 await prisma.product.findUnique(
@@ -1693,13 +1905,25 @@ app.put(
                 });
             }
 
+            const {
+                name,
+                price,
+                oldPrice,
+                category,
+                description,
+                image,
+                discount,
+                rating,
+                reviews,
+                stock,
+            } = req.body;
+
             const updatedProduct =
                 await prisma.product.update({
                     where: {
                         id:
                             existingProduct.id,
                     },
-
                     data: {
                         name:
                             name !==
@@ -1708,7 +1932,6 @@ app.put(
                                     name
                                 ).trim()
                                 : existingProduct.name,
-
                         price:
                             price !==
                                 undefined
@@ -1716,7 +1939,6 @@ app.put(
                                     price
                                 )
                                 : existingProduct.price,
-
                         oldPrice:
                             oldPrice !==
                                 undefined
@@ -1726,7 +1948,6 @@ app.put(
                                     )
                                     : null
                                 : existingProduct.oldPrice,
-
                         category:
                             category !==
                                 undefined
@@ -1734,7 +1955,6 @@ app.put(
                                     category
                                 )
                                 : existingProduct.category,
-
                         description:
                             description !==
                                 undefined
@@ -1742,7 +1962,6 @@ app.put(
                                     description
                                 )
                                 : existingProduct.description,
-
                         image:
                             image !==
                                 undefined
@@ -1750,7 +1969,6 @@ app.put(
                                     image
                                 )
                                 : existingProduct.image,
-
                         discount:
                             discount !==
                                 undefined
@@ -1760,7 +1978,6 @@ app.put(
                                     )
                                     : null
                                 : existingProduct.discount,
-
                         rating:
                             rating !==
                                 undefined
@@ -1768,7 +1985,6 @@ app.put(
                                     rating
                                 )
                                 : existingProduct.rating,
-
                         reviews:
                             reviews !==
                                 undefined
@@ -1776,7 +1992,6 @@ app.put(
                                     reviews
                                 )
                                 : existingProduct.reviews,
-
                         stock:
                             stock !==
                                 undefined
@@ -1790,7 +2005,6 @@ app.put(
             res.status(200).json({
                 message:
                     'تم تعديل المنتج بنجاح.',
-
                 product:
                     formatProduct(
                         updatedProduct
@@ -1811,7 +2025,7 @@ app.put(
 );
 
 // ============================================================
-// ADMIN - UPDATE ORDER STATUS
+// ADMIN UPDATE ORDER STATUS
 // ============================================================
 
 app.put(
@@ -1820,11 +2034,9 @@ app.put(
     authenticateAdmin,
     async (req, res) => {
         try {
-            const orderId =
-                req.params.id;
-
-            const { status } =
-                req.body;
+            const {
+                status,
+            } = req.body;
 
             if (!status) {
                 return res.status(400).json({
@@ -1834,27 +2046,23 @@ app.put(
             }
 
             const updatedOrder =
-                await prisma.order.update(
-                    {
-                        where: {
-                            id: orderId,
-                        },
-
-                        data: {
-                            status:
-                                status,
-                        },
-
-                        include: {
-                            items: true,
-                        },
-                    }
-                );
+                await prisma.order.update({
+                    where: {
+                        id:
+                            req.params.id,
+                    },
+                    data: {
+                        status,
+                    },
+                    include: {
+                        items:
+                            true,
+                    },
+                });
 
             res.status(200).json({
                 message:
                     'تم تحديث حالة الطلب بنجاح.',
-
                 order:
                     updatedOrder,
             });
@@ -1877,7 +2085,12 @@ app.put(
 // ============================================================
 
 app.use(
-    (error, req, res, next) => {
+    (
+        error,
+        req,
+        res,
+        next
+    ) => {
         console.error(
             '❌ Server error:',
             error
@@ -1909,7 +2122,6 @@ app.use(
 async function startServer() {
     try {
         await prisma.$connect();
-
         console.log(
             '✅ متصل بـ MongoDB Atlas باستخدام Prisma'
         );
@@ -1921,6 +2133,12 @@ async function startServer() {
                 console.log(
                     `🚀 Backend يعمل على port ${PORT}`
                 );
+                console.log(
+                    `🍪 Cookies mode: ${isProduction
+                        ? 'PRODUCTION / Secure + SameSite=None'
+                        : 'DEVELOPMENT / Lax'
+                    }`
+                );
             }
         );
     } catch (error) {
@@ -1928,9 +2146,7 @@ async function startServer() {
             '❌ فشل الاتصال:',
             error
         );
-
         await prisma.$disconnect();
-
         process.exit(1);
     }
 }
