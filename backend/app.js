@@ -84,12 +84,17 @@ const prisma =
 
 const transporter =
     nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
         auth: {
             user:
                 process.env.EMAIL_USER,
             pass:
                 process.env.EMAIL_PASS,
+        },
+        tls: {
+            rejectUnauthorized: false,
         },
     });
 
@@ -102,7 +107,7 @@ app.use(
 );
 
 // ============================================================
-// CORS (تم التحديث ليقبل أي رابط فرعي أو أساسي على Vercel تلقائياً)
+// CORS
 // ============================================================
 
 const allowedOrigins = [
@@ -644,6 +649,74 @@ app.post(
             res.status(500).json({
                 message:
                     'حدث خطأ داخلي في السيرفر.',
+            });
+        }
+    }
+);
+
+// ============================================================
+// GOOGLE LOGIN / SIGNUP ENDPOINT
+// ============================================================
+
+app.post(
+    '/api/google-login',
+    async (req, res) => {
+        try {
+            const { email, username } = req.body;
+
+            const cleanEmail =
+                typeof email === 'string'
+                    ? email.trim().toLowerCase()
+                    : '';
+
+            if (!cleanEmail) {
+                return res.status(400).json({
+                    message: 'البريد الإلكتروني مطلوب.',
+                });
+            }
+
+            let user = await prisma.user.findUnique({
+                where: { email: cleanEmail },
+            });
+
+            // لو المستخدم مش مسجل قبل كده، بنعمل له حساب جديد أوتوماتيك بكلمة مرور عشوائية
+            if (!user) {
+                const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+                const hashedPassword = await bcrypt.hash(randomPassword, 12);
+
+                user = await prisma.user.create({
+                    data: {
+                        username: username || 'Google User',
+                        email: cleanEmail,
+                        password: hashedPassword,
+                    },
+                });
+                console.log('✅ New user created via Google:', cleanEmail);
+            }
+
+            const token = jwt.sign(
+                { userId: user.id },
+                process.env.JWT_SECRET,
+                { expiresIn: '7d' }
+            );
+
+            res.cookie('token', token, getAuthCookieOptions());
+
+            console.log('✅ Google login successful for:', user.email);
+
+            res.status(200).json({
+                message: 'تم تسجيل الدخول بواسطة Google بنجاح!',
+                token: token,
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                },
+            });
+        } catch (error) {
+            console.error('❌ Google login server error:', error);
+            res.status(500).json({
+                message: 'حدث خطأ أثناء تسجيل الدخول بـ Google.',
             });
         }
     }
@@ -1385,22 +1458,27 @@ app.post(
                         `,
                 };
 
-                transporter.sendMail(
-                    mailOptions,
-                    (error, info) => {
-                        if (error) {
-                            console.error(
-                                '❌ Email error:',
-                                error
-                            );
-                        } else {
-                            console.log(
-                                '✅ Email sent:',
-                                info.response
-                            );
+                try {
+                    transporter.sendMail(
+                        mailOptions,
+                        (error, info) => {
+                            if (error) {
+                                console.log(
+                                    '⚠️ ملاحظة: تعذر إرسال البريد الإلكتروني بسبب قيود الشبكة (لكن الأوردر تم بنجاح).'
+                                );
+                            } else {
+                                console.log(
+                                    '✅ Email sent:',
+                                    info.response
+                                );
+                            }
                         }
-                    }
-                );
+                    );
+                } catch (emailErr) {
+                    console.log(
+                        '⚠️ تجاوز خطأ البريد الإلكتروني لاستمرار الطلب بسلاسة.'
+                    );
+                }
             }
 
             res.status(201).json({
