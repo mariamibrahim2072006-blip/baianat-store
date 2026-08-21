@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const { PrismaClient } = require('@prisma/client');
 const dotenv = require('dotenv');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 // ============================================================
 // LOAD ENVIRONMENT VARIABLES
@@ -79,24 +79,12 @@ const prisma =
     new PrismaClient();
 
 // ============================================================
-// NODEMAILER
+// RESEND EMAIL SETUP
 // ============================================================
 
-const transporter =
-    nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
-        auth: {
-            user:
-                process.env.EMAIL_USER,
-            pass:
-                process.env.EMAIL_PASS,
-        },
-        tls: {
-            rejectUnauthorized: false,
-        },
-    });
+const resend = new Resend(
+    process.env.RESEND_API_KEY
+);
 
 // ============================================================
 // MIDDLEWARE
@@ -113,6 +101,7 @@ app.use(
 const allowedOrigins = [
     'http://localhost:5173',
     'https://baianat-store.vercel.app',
+    'https://baianat-frontend.vercel.app',
 ];
 
 app.use(
@@ -325,13 +314,6 @@ function authenticateToken(
             token = authHeader.split(' ')[1];
         }
     }
-
-    console.log(
-        '🍪 Token received:',
-        token
-            ? 'YES'
-            : 'NO'
-    );
 
     if (!token) {
         return res.status(401).json({
@@ -619,14 +601,6 @@ app.post(
                 getAuthCookieOptions()
             );
 
-            console.log(
-                '✅ Login successful for:',
-                user.email
-            );
-            console.log(
-                '🍪 Auth cookie set'
-            );
-
             res.status(200).json({
                 message:
                     'تم تسجيل الدخول بنجاح!',
@@ -679,7 +653,6 @@ app.post(
                 where: { email: cleanEmail },
             });
 
-            // لو المستخدم مش مسجل قبل كده، بنعمل له حساب جديد أوتوماتيك بكلمة مرور عشوائية
             if (!user) {
                 const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
                 const hashedPassword = await bcrypt.hash(randomPassword, 12);
@@ -691,7 +664,6 @@ app.post(
                         password: hashedPassword,
                     },
                 });
-                console.log('✅ New user created via Google:', cleanEmail);
             }
 
             const token = jwt.sign(
@@ -701,8 +673,6 @@ app.post(
             );
 
             res.cookie('token', token, getAuthCookieOptions());
-
-            console.log('✅ Google login successful for:', user.email);
 
             res.status(200).json({
                 message: 'تم تسجيل الدخول بواسطة Google بنجاح!',
@@ -1207,7 +1177,7 @@ app.post(
 );
 
 // ============================================================
-// CREATE ORDER
+// CREATE ORDER & RESEND EMAIL
 // ============================================================
 
 app.post(
@@ -1388,96 +1358,36 @@ app.post(
                         ? 'الدفع عند الاستلام (Cash on Delivery)'
                         : 'الدفع الإلكتروني (Online Payment)';
 
-                const mailOptions =
-                {
-                    from:
-                        '"BAIANAT Store" <no-reply@baianat.com>',
-                    to:
-                        user.email,
-                    subject:
-                        '🛍️ تأكيد طلبك من متجر بـيانات',
-                    html: `
+                try {
+                    const emailData = await resend.emails.send({
+                        from: 'BAIANAT Store <onboarding@resend.dev>',
+                        to: [user.email],
+                        subject: '🛍️ تأكيد طلبك من متجر بـيانات',
+                        html: `
                             <div style="font-family: Arial, sans-serif; direction: rtl; padding: 25px; background-color: #f8fafc; border-radius: 12px; color: #111;">
                                 <h2 style="color: #DB4444;">
-                                    شكراً لك يا ${user.username ||
-                        'عميلنا العزيز'
-                        }! 🎉
+                                    شكراً لك يا ${user.username || 'عميلنا العزيز'}! 🎉
                                 </h2>
-
                                 <p style="font-size: 16px;">
                                     تم استلام طلبك بنجاح، وتحديث المخزون، وهو الآن قيد التجهيز للشحن.
                                 </p>
-
                                 <div style="background: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
-                                    <h3>
-                                        تفاصيل الفاتورة:
-                                    </h3>
-
-                                    <p>
-                                        <strong>
-                                            طريقة الدفع:
-                                        </strong>
-
-                                        ${paymentText}
-                                    </p>
-
-                                    <p>
-                                        <strong>
-                                            إجمالي المبلغ:
-                                        </strong>
-
-                                        $${result.total.toFixed(
-                            2
-                        )}
-                                    </p>
-
-                                    <p>
-                                        <strong>
-                                            عنوان الشحن:
-                                        </strong>
-
-                                        ${address}
-                                    </p>
+                                    <h3>تفاصيل الفاتورة:</h3>
+                                    <p><strong>طريقة الدفع:</strong> ${paymentText}</p>
+                                    <p><strong>إجمالي المبلغ:</strong> $${result.total.toFixed(2)}</p>
+                                    <p><strong>عنوان الشحن:</strong> ${address}</p>
                                 </div>
-
-                                ${isCod
-                            ? `
-                                        <p>
-                                            📦 سيقوم فريق التوصيل بالاتصال بك هاتفياً لتأكيد موعد وصول الشحنة.
-                                        </p>
-                                    `
-                            : ''
-                        }
-
+                                ${isCod ? '<p>📦 سيقوم فريق التوصيل بالاتصال بك هاتفياً لتأكيد موعد وصول الشحنة.</p>' : ''}
                                 <hr />
-
                                 <p style="font-size: 12px; color: #94a3b8; text-align: center;">
                                     متجر بـيانات - جميع الحقوق محفوظة © 2026
                                 </p>
                             </div>
                         `,
-                };
-
-                try {
-                    transporter.sendMail(
-                        mailOptions,
-                        (error, info) => {
-                            if (error) {
-                                console.log(
-                                    '⚠️ ملاحظة: تعذر إرسال البريد الإلكتروني بسبب قيود الشبكة (لكن الأوردر تم بنجاح).'
-                                );
-                            } else {
-                                console.log(
-                                    '✅ Email sent:',
-                                    info.response
-                                );
-                            }
-                        }
-                    );
+                    });
+                    console.log('✅ Resend email sent successfully:', emailData);
                 } catch (emailErr) {
-                    console.log(
-                        '⚠️ تجاوز خطأ البريد الإلكتروني لاستمرار الطلب بسلاسة.'
-                    );
+                    console.log('⚠️ خطأ في إرسال الإيميل عبر Resend:', emailErr.message);
                 }
             }
 
@@ -2208,12 +2118,6 @@ async function startServer() {
             () => {
                 console.log(
                     `🚀 Backend يعمل على port ${PORT}`
-                );
-                console.log(
-                    `🍪 Cookies mode: ${isProduction
-                        ? 'PRODUCTION / Secure + SameSite=None'
-                        : 'DEVELOPMENT / Lax'
-                    }`
                 );
             }
         );
