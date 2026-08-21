@@ -4,3 +4,8 @@ node_modules
 
 /generated/prisma
 my-app/
+.agents/
+.claude/
+.windsurf/
+my-app.7z
+skills-lock.json
